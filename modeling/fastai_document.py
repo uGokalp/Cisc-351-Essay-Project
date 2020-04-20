@@ -1,7 +1,19 @@
 from fastai import *
 from fastai.tabular import *
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
+
+def create_holdout(df):
+    X_train, X_holdout, y_train, y_holdout = train_test_split(
+        df.drop("score", axis=1), df.score, test_size=0.2, random_state=42)
+
+    X_holdout["score"] = y_holdout
+    X_train["score"] = y_train
+
+    X_train.reset_index(drop=True, inplace=True)
+    X_holdout.reset_index(drop=True, inplace=True)
+
+    return X_train, X_holdout
 
 def cross_val_dl(data):
     """Applies cross-validation for the fastai model and returns the average
@@ -34,7 +46,8 @@ if __name__ == '__main__':
     df = pd.read_csv("../data/scaled.csv")
 
     data = df.sample(len(df), random_state=42)
-    acc, loss = cross_val_dl(data)
+    train, holdout = create_holdout(data)
+    acc_val, loss_val, learn = cross_val_dl(train, holdout)
 
-    print("Accuracy score: ", acc)
-    print("Logloss score: ", loss)
+    print("Accuracy score: ", acc_val)
+    print("Logloss score: ", loss_val)

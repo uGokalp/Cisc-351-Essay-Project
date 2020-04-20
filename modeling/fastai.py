@@ -1,7 +1,7 @@
 from fastai import *
 from fastai.tabular import *
 from sklearn.preprocessing import LabelEncoder
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
 
 def grade_level(a):
@@ -22,30 +22,44 @@ def essay_type(a):
         return 1
 
 
-def cross_val_dl(data):
-    """Applies 5-fold crossvalidation for the fastai model and returns the
-    average accuracy
-    and the average loss"""
+def create_holdout(df):
+    X_train, X_holdout, y_train, y_holdout = train_test_split(
+        df.drop("score", axis=1), df.score, test_size=0.2, random_state=42)
+
+    X_holdout["score"] = y_holdout
+    X_train["score"] = y_train
+
+    X_train.reset_index(drop=True, inplace=True)
+    X_holdout.reset_index(drop=True, inplace=True)
+
+    return X_train, X_holdout
+
+
+def cross_val_dl(data, holdout):
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
     acc_val = []
     loss_val = []
     procs = [FillMissing, Categorify]
     cat_var = ["essay_set", "GradeLevel", "EssayType"]
     dep_var = "score"
+    test = TabularList.from_df(holdout.drop("score", axis=1),
+                               cat_names=cat_var, procs=procs)
     for train_index, val_index in skf.split(data.index, data.score):
         fold = TabularDataBunch.from_df(path='.', df=data, dep_var=dep_var,
                                         valid_idx=val_index, cat_names=cat_var,
                                         procs=procs)
+        test = TabularList.from_df(holdout.drop("score", axis=1),
+                                   cat_names=cat_var, procs=procs)
+        fold.add_test(test, label=0)
         learn = tabular_learner(fold, layers=[1000, 500, 32], metrics=accuracy,
                                 emb_drop=0.04, silent=True)
         learn.fit_one_cycle(5)
+        learn.predict
         loss, acc = learn.validate()
         acc_val.append(acc.numpy())
         loss_val.append(loss)
-        acc = np.array(acc_val).mean()
-        loss = np.array(loss_val).mean()
 
-    return acc, loss
+    return acc_val, loss_val, learn
 
 
 if __name__ == '__main__':
@@ -57,7 +71,8 @@ if __name__ == '__main__':
     df.loc[:, "EssayType"] = df.essay_set.apply(essay_type)
 
     data = df.sample(len(df), random_state=42)
-    acc, loss = cross_val_dl(data)
+    train, holdout = create_holdout(data)
+    acc_val, loss_val, learn = cross_val_dl(train, holdout)
 
-    print("Accuracy score: ", acc)
-    print("Logloss score: ", loss)
+    print("Accuracy score: ", acc_val)
+    print("Logloss score: ", loss_val)
